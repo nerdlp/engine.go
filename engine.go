@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -60,6 +59,11 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		e.get(w, r)
 		return
 	}
+
+	if r.Method == http.MethodPost {
+		e.post(w, r)
+		return
+	}
 }
 
 func (e *Engine) get(w http.ResponseWriter, r *http.Request) {
@@ -83,15 +87,60 @@ func (e *Engine) get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// If there is sid in query, it should be a data polling from client
-	return
-}
-
-// Send will add to the
-func (e *Engine) Send(ctx context.Context, request *sendMessageRequest) error {
-	session, exist := e.sessionsPools[request.sid]
-	if !exist {
-		return errors.New("session not found")
+	request, err := e.preparegetPollingRequest(r)
+	if err != nil {
+		slog.Error("fail to prepare hand shake", err)
+		handleError(w, err)
+		return
 	}
 
-	return session.Send(ctx, request)
+	response, err := e.handleGetPolling(r.Context(), request)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+
+	response.render(w)
+}
+
+func (e *Engine) post(w http.ResponseWriter, r *http.Request) {
+	request, err := e.preparePostPollingRequest(r)
+	if err != nil {
+		slog.Error("fail to post polling", err)
+		handleError(w, err)
+		return
+	}
+
+	response, err := e.handlePostPolling(r.Context(), request)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+
+	response.render(w)
+}
+
+// sendPacket send a packet to a client
+func (e *Engine) sendPacket(_ context.Context, request *sendPacketRequest) error {
+	session, exist := e.sessionsPools[request.sid]
+	if !exist {
+		return &socketError{
+			code:    http.StatusBadRequest,
+			message: "session not found",
+		}
+	}
+
+	return session.sendPacket(request.packet)
+}
+
+// getPacket return a channel to receive packet from client
+func (e *Engine) getPacket(_ context.Context, request *getPacketRequest) (<-chan *packet, error) {
+	session, exist := e.sessionsPools[request.sid]
+	if !exist {
+		return nil, &socketError{
+			code:    http.StatusBadRequest,
+			message: "session not found",
+		}
+	}
+	return session.getPacket(), nil
 }

@@ -15,10 +15,16 @@ func newPacket(ptype packetType, data []byte) *packet {
 
 // encoding packet for polling transport
 func (p *packet) encodePolling() []byte {
-	encodedPacket := make([]byte, 0, 2+len(p.data))
+	encodedPacket := make([]byte, 0, 1+len(p.data))
 	encodedPacket = append(encodedPacket, p.ptype)
 	encodedPacket = append(encodedPacket, p.data...)
 	return encodedPacket
+}
+
+// encoding packet for polling transport
+func (p *packet) decodePolling(data []byte) {
+	p.ptype = data[0]
+	p.data = data[1:]
 }
 
 // encoding packet for websocket transport

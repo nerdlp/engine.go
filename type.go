@@ -1,7 +1,5 @@
 package engine
 
-import "context"
-
 type Transport string
 
 const (
@@ -18,14 +16,13 @@ const (
 	qk_sid                = "sid"
 )
 
-type sendMessageRequest struct {
-	sid         string
-	messageType int
-	message     []byte
+type sendPacketRequest struct {
+	sid    string
+	packet *packet
 }
 
-type transportClient interface {
-	Send(ctx context.Context, request *sendMessageRequest) error
+type getPacketRequest struct {
+	sid string
 }
 
 type packetType = byte
