@@ -1,8 +1,10 @@
 package engine
 
 import (
+	"context"
+	"errors"
+	"log/slog"
 	"net/http"
-	"strconv"
 	"time"
 )
 
@@ -29,6 +31,9 @@ type Engine struct {
 	transports []Transport
 	// allows to upgrade transport
 	allowUpgrades bool
+
+	///// INTERNAL VARIABLES ///////////
+	sessionsPools map[string]transportClient
 }
 
 func New(opts ...Option) *Engine {
@@ -58,55 +63,35 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (e *Engine) get(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	eio := query.Get(qk_EIO)
-	transport := query.Get(qk_Transport)
-	response := new(response)
-
-	eioNumber, err := strconv.Atoi(eio)
-	if err != nil {
-		err = socketError{
-			innerError: err,
-			code:       http.StatusBadRequest,
-			message:    "invalid eio format",
+	if !r.URL.Query().Has(qk_sid) {
+		// If no sid in query, it should be a hand shake
+		request, err := e.prepareHandshakeRequest(r)
+		if err != nil {
+			slog.Error("fail to prepare hand shake", err)
+			handleError(w, err)
+			return
 		}
-		handleError(w, err)
-		return
-	}
-	if eioNumber != 4 {
-		err = socketError{
-			innerError: err,
-			code:       http.StatusBadRequest,
-			message:    "invalid eio version",
+
+		response, err := e.handleHandshake(r.Context(), request)
+		if err != nil {
+			handleError(w, err)
+			return
 		}
-		handleError(w, err)
+
+		response.render(w)
 		return
 	}
 
-	switch Transport(transport) {
-	case Polling:
-		response.status = http.StatusOK
-	case WebSocket:
-		response.status = http.StatusSwitchingProtocols
-	default:
-		err = socketError{
-			code:    http.StatusBadRequest,
-			message: "invalid transport method",
-		}
-		handleError(w, err)
-		return
-	}
-
-	responseBody, err := e.handleHandshake(r.Context(), &handshakeRequest{
-		eio:       int32(eioNumber),
-		transport: Transport(transport),
-	})
-	if err != nil {
-		handleError(w, err)
-		return
-	}
-	response.body = responseBody
-
-	handleResponse(w, response)
+	// If there is sid in query, it should be a data polling from client
 	return
+}
+
+// Send will add to the
+func (e *Engine) Send(ctx context.Context, request *sendMessageRequest) error {
+	session, exist := e.sessionsPools[request.sid]
+	if !exist {
+		return errors.New("session not found")
+	}
+
+	return session.Send(ctx, request)
 }
