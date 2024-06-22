@@ -1,6 +1,6 @@
 # engine.go
 
-Engine.go is the pure implementation of [engine.io](https://socket.io/docs/v4/engine-io-protocol) in Go
+Engine.go is the pure implementation of [engine.io](https://socket.io/docs/v4/engine-io-protocol) in Go.
 
 ## Installation
 
