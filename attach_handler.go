@@ -31,7 +31,7 @@ func newAttachHandler(engine *Engine, handler http.Handler, opts ...attachOption
 }
 
 func (h *attachHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if strings.HasPrefix(ComputePath(h.engine.path), ComputePath(r.URL.Path)) {
+	if strings.HasPrefix(ComputePath(h.path), ComputePath(r.URL.Path)) {
 		h.engine.ServeHTTP(w, r)
 		return
 	}

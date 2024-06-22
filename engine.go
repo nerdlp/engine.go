@@ -2,6 +2,7 @@ package engine
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -28,8 +29,6 @@ type Engine struct {
 	transports []Transport
 	// allows to upgrade transport
 	allowUpgrades bool
-	// path
-	path string
 }
 
 func New(opts ...Option) *Engine {
@@ -51,6 +50,63 @@ func (e *Engine) Attach(r http.Handler, opts ...attachOption) http.Handler {
 	return newAttachHandler(e, r, opts...)
 }
 
-func (e *Engine) ServeHTTP(W http.ResponseWriter, r *http.Request) {
+func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		e.get(w, r)
+		return
+	}
+}
 
+func (e *Engine) get(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	eio := query.Get(qk_EIO)
+	transport := query.Get(qk_Transport)
+	response := new(response)
+
+	eioNumber, err := strconv.Atoi(eio)
+	if err != nil {
+		err = socketError{
+			innerError: err,
+			code:       http.StatusBadRequest,
+			message:    "invalid eio format",
+		}
+		handleError(w, err)
+		return
+	}
+	if eioNumber != 4 {
+		err = socketError{
+			innerError: err,
+			code:       http.StatusBadRequest,
+			message:    "invalid eio version",
+		}
+		handleError(w, err)
+		return
+	}
+
+	switch Transport(transport) {
+	case Polling:
+		response.status = http.StatusOK
+	case WebSocket:
+		response.status = http.StatusSwitchingProtocols
+	default:
+		err = socketError{
+			code:    http.StatusBadRequest,
+			message: "invalid transport method",
+		}
+		handleError(w, err)
+		return
+	}
+
+	responseBody, err := e.handleHandshake(r.Context(), &handshakeRequest{
+		eio:       int32(eioNumber),
+		transport: Transport(transport),
+	})
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	response.body = responseBody
+
+	handleResponse(w, response)
+	return
 }
