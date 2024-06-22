@@ -1,5 +1,7 @@
 package engine
 
-func Add(a, b int) int {
-	return a + b
+import "strings"
+
+func ComputePath(path string) string {
+	return "/" + strings.Trim(path, "/") + "/"
 }
