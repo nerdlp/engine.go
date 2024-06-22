@@ -1,2 +1,18 @@
 # engine.go
-The pure implementation of engine.io in go
+
+Engine.go is the pure implementation of [engine.io](https://socket.io/docs/v4/engine-io-protocol) in Go
+
+## Installation
+
+## Usage
+
+## Contributing
+
+Pull requests are welcome. For major changes, please open an issue first
+to discuss what you would like to change.
+
+Please make sure to update tests as appropriate.
+
+## License
+
+[MIT](https://choosealicense.com/licenses/mit/)
