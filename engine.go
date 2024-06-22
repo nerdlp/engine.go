@@ -1,8 +1,9 @@
 package engine
 
 import (
+	"context"
+	"log/slog"
 	"net/http"
-	"strconv"
 	"time"
 )
 
@@ -29,6 +30,9 @@ type Engine struct {
 	transports []Transport
 	// allows to upgrade transport
 	allowUpgrades bool
+
+	///// INTERNAL VARIABLES ///////////
+	sessionsPools map[string]transportClient
 }
 
 func New(opts ...Option) *Engine {
@@ -55,58 +59,88 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		e.get(w, r)
 		return
 	}
+
+	if r.Method == http.MethodPost {
+		e.post(w, r)
+		return
+	}
 }
 
 func (e *Engine) get(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	eio := query.Get(qk_EIO)
-	transport := query.Get(qk_Transport)
-	response := new(response)
+	if !r.URL.Query().Has(qk_sid) {
+		// If no sid in query, it should be a hand shake
+		request, err := e.prepareHandshakeRequest(r)
+		if err != nil {
+			slog.Error("fail to prepare hand shake", err)
+			handleError(w, err)
+			return
+		}
 
-	eioNumber, err := strconv.Atoi(eio)
+		response, err := e.handleHandshake(r.Context(), request)
+		if err != nil {
+			handleError(w, err)
+			return
+		}
+
+		response.render(w)
+		return
+	}
+
+	// If there is sid in query, it should be a data polling from client
+	request, err := e.preparegetPollingRequest(r)
 	if err != nil {
-		err = socketError{
-			innerError: err,
-			code:       http.StatusBadRequest,
-			message:    "invalid eio format",
-		}
-		handleError(w, err)
-		return
-	}
-	if eioNumber != 4 {
-		err = socketError{
-			innerError: err,
-			code:       http.StatusBadRequest,
-			message:    "invalid eio version",
-		}
+		slog.Error("fail to prepare hand shake", err)
 		handleError(w, err)
 		return
 	}
 
-	switch Transport(transport) {
-	case Polling:
-		response.status = http.StatusOK
-	case WebSocket:
-		response.status = http.StatusSwitchingProtocols
-	default:
-		err = socketError{
+	response, err := e.handleGetPolling(r.Context(), request)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+
+	response.render(w)
+}
+
+func (e *Engine) post(w http.ResponseWriter, r *http.Request) {
+	request, err := e.preparePostPollingRequest(r)
+	if err != nil {
+		slog.Error("fail to post polling", err)
+		handleError(w, err)
+		return
+	}
+
+	response, err := e.handlePostPolling(r.Context(), request)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+
+	response.render(w)
+}
+
+// sendPacket send a packet to a client
+func (e *Engine) sendPacket(_ context.Context, request *sendPacketRequest) error {
+	session, exist := e.sessionsPools[request.sid]
+	if !exist {
+		return &socketError{
 			code:    http.StatusBadRequest,
-			message: "invalid transport method",
+			message: "session not found",
 		}
-		handleError(w, err)
-		return
 	}
 
-	responseBody, err := e.handleHandshake(r.Context(), &handshakeRequest{
-		eio:       int32(eioNumber),
-		transport: Transport(transport),
-	})
-	if err != nil {
-		handleError(w, err)
-		return
-	}
-	response.body = responseBody
+	return session.sendPacket(request.packet)
+}
 
-	handleResponse(w, response)
-	return
+// getPacket return a channel to receive packet from client
+func (e *Engine) getPacket(_ context.Context, request *getPacketRequest) (<-chan *packet, error) {
+	session, exist := e.sessionsPools[request.sid]
+	if !exist {
+		return nil, &socketError{
+			code:    http.StatusBadRequest,
+			message: "session not found",
+		}
+	}
+	return session.getPacket(), nil
 }
